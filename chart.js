@@ -100,7 +100,7 @@
       ctx.beginPath(); ctx.moveTo(0, Y(v)); ctx.lineTo(w, Y(v)); ctx.stroke(); ctx.restore();
       if (label) { ctx.font = "600 11px -apple-system, system-ui, sans-serif"; ctx.fillStyle = col; ctx.fillText(label, 6, Y(v) - 6); }
     };
-    dash(entry, C.ter, "Entry"); dash(exitLine, C.orange, "Risk trailing stop");
+    dash(entry, C.ter, "Entry"); dash(exitLine, C.orange, "Risk Exit-Linie");
   }
 
   /* Score ring 0-100, green from `pass` */

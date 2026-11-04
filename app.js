@@ -3,7 +3,7 @@
    Every trade URL shown here comes verbatim from the desk's links.py (inside the snapshot). */
 (function () {
   "use strict";
-  const APP_VERSION = "4";
+  const APP_VERSION = "5";
   const POLL_S = 15, STALE_S = 300, API_MIN_GAP_S = 60;
   const LS = window.localStorage;
   const AG = { scanner: { n: "Scanner", c: "#64d2ff" }, auditor: { n: "Auditor", c: "#64d2ff" },
@@ -252,8 +252,9 @@
       body = `<div>${usd(st.ticket)} · ${st.stack_pct}% of stack</div>
         ${L ? `<div class="bar"><i style="width:${filled ? 100 : 50}%"></i></div><div>${esc(L.name)} · ${filled ? "✓ Filled" : "Executing... 50%"}</div>` : '<div class="sec">No trade yet tonight</div>'}`;
     } else if (name === "risk") {
-      body = `<div class="pills"><span class="pill mono redp">stop -${st.stop_pct}%</span><span class="pill mono greenp">trail ${st.trail_pct}%</span></div>
-        <div>${st.last ? esc(st.last.name) + " · " + (st.last.reason === "stop" ? "Stopped" : "Trailed out") + " · " + usd(st.last.pnl, true) : '<span class="sec">' + (st.count ? "Guarding " + st.count + " position(s)" : "Nothing to guard") + "</span>"}</div>`;
+      const rs = { stop: "Stop-Loss", take_profit: "Gewinnziel", floor: "Gewinnsicherung", trail: "Trailing-Stop", timeout: "Timeout", pulled: "Liquidität weg" };
+      body = `<div class="pills"><span class="pill mono redp">Stop -${st.stop_pct}%</span><span class="pill mono greenp">Ziel +${st.take_profit_pct}%</span><span class="pill mono greenp">Sicherung +${st.floor_pct}% ab +${st.floor_arm_pct}%</span>${st.trailing_enabled ? `<span class="pill mono greenp">Trail ${st.trail_pct}%</span>` : ""}</div>
+        <div>${st.last ? esc(st.last.name) + " · " + esc(st.last.label || rs[st.last.reason] || st.last.reason || "") + " · " + usd(st.last.pnl, true) : '<span class="sec">' + (st.count ? "Guarding " + st.count + " position(s)" : "Nothing to guard") + "</span>"}</div>`;
     }
     const stat = name === "analyst" ? "Scoring" : name === "risk" ? (st.count ? "Guarding" : "Idle") : st.label;
     return `<a class="acard" href="#/agents"><div class="hd"><span class="sd" style="background:${dot}"></span><span style="color:${a.c}">${a.n}</span><span class="ter">${st.paused ? "paused" : st.alive ? "" : "offline"}</span></div>
@@ -378,7 +379,7 @@
     }
     const p = c.position, open = p && p.status !== "closed";
     const since = p && c.price != null ? 100 * (c.price / p.entry_price - 1) : null;
-    const exitLine = open ? (p.trail_line || p.stop_price) : null;
+    const exitLine = open ? (p.floor_line || p.trail_line || p.stop_price) : null;
     const left = open ? Math.max(0, p.timeout_at - Date.now() / 1000) : 0;
     const audit = c.audit ? `<span class="chip ${c.audit === "8/8" ? "" : "bad"}">⛨ ${esc(c.audit)}</span>` : "";
     return navbar("", "#/home") + `<div class="coinhd">
@@ -397,7 +398,9 @@
     ${open ? `<h2>Your position · ${usd(p.size_usd)} in · Executor</h2>
       <div class="exitcard">
         <div class="lrow"><span>Stop line</span><span class="red num">${price(p.stop_price)} · -${p.stop_pct}%</span></div>
-        <div class="lrow"><span>Trail line</span><span class="${p.trail_line ? "green" : "ter"} num">${p.trail_line ? price(p.trail_line) : "ab +" + (s.account.settings.risk.find(x => x.key === "trail_start_pct") || {}).value + "%"}</span></div>
+        <div class="lrow"><span>Gewinnziel +${p.tp_pct}%</span><span class="green num">${p.tp_line ? price(p.tp_line) : "n/a"}</span></div>
+        <div class="lrow"><span>Gewinnsicherung +${p.floor_pct}%</span><span class="${p.floor_armed ? "green" : "ter"} num">${p.floor_armed ? price(p.floor_line) : "aktiv ab +" + p.floor_arm_pct + "%"}</span></div>
+        ${p.trail_line ? `<div class="lrow"><span>Trail line</span><span class="green num">${price(p.trail_line)}</span></div>` : ""}
         <div class="lrow"><span>Timeout in</span><span class="num">${Math.floor(left / 3600)}h ${Math.floor(left % 3600 / 60)}m</span></div>
       </div>` : ""}
     ${tradeBtns(c, open ? "Sell" : "Buy")}
@@ -462,7 +465,7 @@
     }
     if (r === "coin" && S.snap.coins[arg]) {
       const c = S.snap.coins[arg], p = c.position, open = p && p.status !== "closed";
-      Charts.candles($("#cnd"), c.candles, open ? (p.trail_line || p.stop_price) : null, p ? p.entry_price : null);
+      Charts.candles($("#cnd"), c.candles, open ? (p.floor_line || p.trail_line || p.stop_price) : null, p ? p.entry_price : null);
     }
     if (r === "audit") runBeam(arg);
     const sb = $("#sbtn"); if (sb) sb.onclick = () => { $("#search").classList.toggle("open"); $("#q").focus(); };
