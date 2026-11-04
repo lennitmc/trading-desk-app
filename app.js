@@ -34,13 +34,66 @@
     }
     history.replaceState(null, "", location.pathname + location.search + "#/home"); // secret leaves the URL bar
   }
+  /* Paste flow: an installed home-screen app has its own storage, so the link can be pasted here.
+     Accepts the full URL, "#d=…&k=…", "d=…&k=…", also URL-encoded (%3A, %23, %26 …). Never logged. */
+  function parseLink(raw) {
+    let t = String(raw || "").replace(/\s+/g, "");
+    for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(t); i++) { try { t = decodeURIComponent(t); } catch (e) { break; } }
+    const at = t.search(/(^|[#?&])d=/);
+    if (at < 0) return null;
+    const p = new URLSearchParams(t.slice(at).replace(/^[#?&]/, "").replace(/[?#]/g, "&"));
+    const d = p.get("d"), k = p.get("k");
+    if (!d || !k) return null;
+    const ok = (d === "local" && isLocal()) || /^[A-Za-z0-9-]{1,39}:[0-9a-f]{20,40}$/.test(d);
+    if (!ok || !/^[A-Za-z0-9_-]{43}=?$/.test(k)) return null;
+    return { d, k: k.replace(/=$/, "") };
+  }
+  async function connectLink(raw) {
+    const cfg = parseLink(raw);
+    if (!cfg) throw new Error("Das ist kein gültiger Desk-Link. Er muss „#d=…&k=…“ enthalten – bitte den ganzen privaten Link einfügen.");
+    let env, snap;
+    try { env = await fetchEnv(false, cfg); }
+    catch (e) { throw new Error(/HTTP 404/.test(e.message) ? "Daten nicht gefunden (404). Der Link ist unvollständig oder veraltet." : "Keine Verbindung zu GitHub. Internet prüfen und erneut versuchen."); }
+    try { snap = await decrypt(env, cfg); }
+    catch (e) { throw new Error("Der Schlüssel im Link passt nicht zu den Daten. Bitte den Link vollständig kopieren."); }
+    LS.setItem("desk.cfg", JSON.stringify(cfg)); LS.setItem("desk.last", JSON.stringify(env));
+    S.cfg = cfg; S.snap = snap; S.lastOk = Date.now(); S.fails = 0; S.err = null;
+    return snap;
+  }
+  function linkForm(compact) {
+    const clip = navigator.clipboard && navigator.clipboard.readText;
+    return `<div class="linkform${compact ? " compact" : ""}">
+      <label for="lnk">Privaten Link hier einfügen</label>
+      <input id="lnk" type="url" inputmode="url" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="https://…#d=…&amp;k=…">
+      <div class="lbtns">${clip ? '<button type="button" id="lpaste" class="btn2">Aus Zwischenablage einfügen</button>' : ""}<button type="button" id="lgo" class="btn1">Verbinden</button></div>
+      <div id="lmsg" class="lmsg" role="status" aria-live="polite"></div></div>`;
+  }
+  function bindLinkForm() {
+    const inp = $("#lnk"); if (!inp || inp.dataset.bound) return; inp.dataset.bound = "1";
+    const msg = $("#lmsg"), go = $("#lgo"), pb = $("#lpaste");
+    const say = (t, bad) => { msg.textContent = t; msg.className = "lmsg" + (bad ? " bad" : " ok"); };
+    const run = async () => {
+      if (!inp.value.trim()) { say("Bitte zuerst den Link einfügen.", true); return; }
+      go.disabled = true; say("Prüfe Link …");
+      try { await connectLink(inp.value); inp.value = ""; inp.blur(); say("Verbunden ✓"); history.replaceState(null, "", location.pathname + location.search + "#/home"); render(); poll(); }
+      catch (e) { say(e.message, true); }
+      finally { go.disabled = false; }
+    };
+    go.onclick = run;
+    inp.onkeydown = e => { if (e.key === "Enter") run(); };
+    if (pb) pb.onclick = async () => {
+      try { const t = await navigator.clipboard.readText(); if (!t) { say("Zwischenablage ist leer.", true); return; } inp.value = t; run(); }
+      catch (e) { say("Kein Zugriff auf die Zwischenablage – bitte ins Feld tippen und „Einsetzen“ wählen.", true); }
+    };
+  }
   function loadCfg() { try { S.cfg = JSON.parse(LS.getItem("desk.cfg") || "null"); } catch (e) { S.cfg = null; } }
 
   /* ---------------- data ---------------- */
   const b64u = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
-  let keyObj = null;
-  async function decrypt(env) {
-    if (!keyObj) keyObj = await crypto.subtle.importKey("raw", b64u(S.cfg.k), "AES-GCM", false, ["decrypt"]);
+  let keyObj = null, keyFor = null;
+  async function decrypt(env, cfg) {
+    const k = (cfg || S.cfg).k;
+    if (!keyObj || keyFor !== k) { keyObj = await crypto.subtle.importKey("raw", b64u(k), "AES-GCM", false, ["decrypt"]); keyFor = k; }
     const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64u(env.iv), additionalData: new TextEncoder().encode(env.aad) }, keyObj, b64u(env.ct));
     return JSON.parse(new TextDecoder().decode(pt));
   }
@@ -49,9 +102,9 @@
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
   }
-  async function fetchEnv(forceApi) {
+  async function fetchEnv(forceApi, cfg) {
     if (S.sim === "offline") throw new Error("simulated offline");
-    const d = S.cfg.d;
+    const d = (cfg || S.cfg).d;
     if (d === "local") { if (!isLocal()) throw new Error("local source only on localhost"); return getJSON("preview/desk.json?t=" + Date.now()); }
     const [owner, id] = d.split(":");
     if (!/^[A-Za-z0-9-]{1,39}$/.test(owner || "") || !/^[0-9a-f]{20,40}$/.test(id || "")) throw new Error("bad data link");
@@ -194,7 +247,7 @@
     return navbar() + b(120) + b(120) + b(120);
   }
   function noLink() {
-    return navbar() + `<section><h2>Kein Daten-Link</h2><div class="emptybox">Öffne diese App einmal über deinen privaten Link (er endet auf <span class="num">#d=…&amp;k=…</span>). Er wird nur auf diesem Gerät gespeichert.</div></section>`;
+    return navbar() + `<section><h2>Kein Daten-Link</h2><div class="emptybox">Füge deinen privaten Link ein (er endet auf <span class="num">#d=…&amp;k=…</span>). Er wird nur auf diesem Gerät gespeichert. Die Home-Bildschirm-App hat einen eigenen Speicher – deshalb hier einmal einfügen, auch wenn der Link in Safari schon geöffnet war.</div>${linkForm()}</section>`;
   }
 
   function home() {
@@ -352,6 +405,7 @@
       }).join("")}</div>`).join("")}
       <h2>Dieses Gerät</h2><div class="list"><div class="lrow"><span>Datenquelle</span><span class="sec">Secret Gist · AES-GCM</span></div>
       <button class="lrow" id="forget" style="width:100%;color:var(--red)">Daten-Link auf diesem Gerät löschen</button></div>
+      <div class="grp">Anderen Link verwenden</div>${linkForm(true)}
     </section>`;
   }
 
@@ -363,7 +417,9 @@
     const off = offline(), err = $("#err");
     if (off) { err.textContent = off; err.hidden = false; } else err.hidden = true;
     const carLeft = $("#car") ? $("#car").scrollLeft : 0;
-    if (!S.cfg) { view.innerHTML = noLink(); return; }
+    const lk = $("#lnk"), lm = $("#lmsg");
+    if (lk && (document.activeElement === lk || lk.value || (lm && lm.textContent && !S.cfg))) return; // don't wipe a link being pasted
+    if (!S.cfg) { view.innerHTML = noLink(); bindLinkForm(); return; }
     if (!S.snap) { view.innerHTML = skeleton(r === "coin" ? "coin" : r === "audit" ? "audit" : r === "home" ? "home" : "list"); return; }
     const html = r === "agents" ? agentsTab() : r === "activity" ? activityTab() : r === "account" ? accountTab()
       : r === "coin" ? coinScreen(arg) : r === "audit" ? auditScreen(arg) : home();
@@ -382,6 +438,7 @@
     if (r === "audit") runBeam(arg);
     const sb = $("#sbtn"); if (sb) sb.onclick = () => { $("#search").classList.toggle("open"); $("#q").focus(); };
     const q = $("#q"); if (q) q.oninput = () => search(q.value);
+    bindLinkForm();
     const fg = $("#forget"); if (fg) fg.onclick = () => { if (confirm("Daten-Link auf diesem Gerät löschen?")) { LS.removeItem("desk.cfg"); LS.removeItem("desk.last"); location.reload(); } };
   }
   function search(t) {

@@ -180,3 +180,15 @@ h2 .more{float:right;font-size:17px;font-weight:400;color:var(--blue)}
   .odo .col,.beam,.disc,.switch::after{transition:none!important}
   .sk{animation:none}
 }
+
+/* paste-link form */
+.linkform{margin:16px 0 0;display:flex;flex-direction:column;gap:10px}
+.linkform.compact{margin:0 16px}
+.linkform label{font-size:15px;color:var(--sec,#8e8e93)}
+.linkform input{width:100%;box-sizing:border-box;min-height:44px;padding:10px 12px;border-radius:12px;border:1px solid #3a3a3c;background:#1c1c1e;color:#fff;font:16px/1.3 -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+.linkform input:focus{outline:none;border-color:#0a84ff}
+.lbtns{display:flex;gap:10px;flex-wrap:wrap}
+.lbtns button{flex:1 1 140px;min-height:44px;border-radius:12px;border:0;font:600 16px -apple-system,BlinkMacSystemFont,sans-serif}
+.btn1{background:#00d35a;color:#000}.btn1:disabled{opacity:.5}
+.btn2{background:#2c2c2e;color:#fff}
+.lmsg{font-size:14px;min-height:18px}.lmsg.bad{color:#ff453a}.lmsg.ok{color:#00d35a}
