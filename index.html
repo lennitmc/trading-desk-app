@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Desk">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src https://gist.githubusercontent.com https://api.github.com 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Trading Desk</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="err" class="err" hidden></div>
+<main id="view" aria-live="polite"></main>
+<nav class="tabbar" id="tabbar">
+  <a href="#/home" data-tab="home"><span class="ti ti-home"></span><span>Home</span></a>
+  <a href="#/agents" data-tab="agents"><span class="ti ti-agents"></span><span>Agents</span></a>
+  <a href="#/activity" data-tab="activity"><span class="ti ti-activity"></span><span>Activity</span></a>
+  <a href="#/account" data-tab="account"><span class="ti ti-account"></span><span>Account</span></a>
+</nav>
+<script src="chart.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
