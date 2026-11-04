@@ -3,6 +3,7 @@
    Every trade URL shown here comes verbatim from the desk's links.py (inside the snapshot). */
 (function () {
   "use strict";
+  const APP_VERSION = "3";
   const POLL_S = 15, STALE_S = 120, API_MIN_GAP_S = 60;
   const LS = window.localStorage;
   const AG = { scanner: { n: "Scanner", c: "#64d2ff" }, auditor: { n: "Auditor", c: "#64d2ff" },
@@ -27,9 +28,9 @@
   function readFragment() {
     const h = location.hash.replace(/^#/, "");
     if (!/(^|&)d=/.test(h)) return;
-    const p = new URLSearchParams(h), d = p.get("d"), k = p.get("k");
-    if (d && k) {
-      LS.setItem("desk.cfg", JSON.stringify({ d, k }));
+    const c = parseLink(h);
+    if (c) {
+      LS.setItem("desk.cfg", JSON.stringify(c));
       LS.removeItem("desk.last");
     }
     history.replaceState(null, "", location.pathname + location.search + "#/home"); // secret leaves the URL bar
@@ -37,8 +38,11 @@
   /* Paste flow: an installed home-screen app has its own storage, so the link can be pasted here.
      Accepts the full URL, "#d=…&k=…", "d=…&k=…", also URL-encoded (%3A, %23, %26 …). Never logged. */
   function parseLink(raw) {
-    let t = String(raw || "").replace(/\s+/g, "");
+    // iOS inserts spaces, soft hyphens and zero-width chars when copying wrapped text: strip them all
+    const INVIS = /[\s\u00AD\u200B-\u200D\u2060\uFEFF]+/g;
+    let t = String(raw || "").replace(INVIS, "").replace(/%20|%C2%AD|%E2%80%8[BCD]|%EF%BB%BF/gi, "");
     for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(t); i++) { try { t = decodeURIComponent(t); } catch (e) { break; } }
+    t = t.replace(INVIS, "");
     const at = t.search(/(^|[#?&])d=/);
     if (at < 0) return null;
     const p = new URLSearchParams(t.slice(at).replace(/^[#?&]/, "").replace(/[?#]/g, "&"));
@@ -50,10 +54,19 @@
   }
   async function connectLink(raw) {
     const cfg = parseLink(raw);
+    if (!cfg && !/(^|[#?&]|%23|%26)d(=|%3D)/i.test(String(raw)))
+      throw new Error("In diesem Link fehlt der Schlüssel (#d=…&k=…). Safaris Adressleiste zeigt ihn nach dem Öffnen nicht mehr – in Safari unter Account „Link kopieren“ tippen und hier einfügen.");
     if (!cfg) throw new Error("Das ist kein gültiger Desk-Link. Er muss „#d=…&k=…“ enthalten – bitte den ganzen privaten Link einfügen.");
     let env, snap;
     try { env = await fetchEnv(false, cfg); }
-    catch (e) { throw new Error(/HTTP 404/.test(e.message) ? "Daten nicht gefunden (404). Der Link ist unvollständig oder veraltet." : "Keine Verbindung zu GitHub. Internet prüfen und erneut versuchen."); }
+    catch (e1) {
+      try { env = await fetchEnv(true, cfg); }   // raw host failed -> try the API once
+      catch (e) {
+        const why = String((e && e.message) || e).replace(/[^\w .:-]/g, "").slice(0, 40);
+        throw new Error(/HTTP 404/.test(e.message) ? "Daten nicht gefunden (404). Der Link ist unvollständig oder veraltet."
+          : "Keine Verbindung zu GitHub (" + why + "). Internet prüfen und erneut versuchen.");
+      }
+    }
     try { snap = await decrypt(env, cfg); }
     catch (e) { throw new Error("Der Schlüssel im Link passt nicht zu den Daten. Bitte den Link vollständig kopieren."); }
     LS.setItem("desk.cfg", JSON.stringify(cfg)); LS.setItem("desk.last", JSON.stringify(env));
@@ -67,6 +80,15 @@
       <input id="lnk" type="url" inputmode="url" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="https://…#d=…&amp;k=…">
       <div class="lbtns">${clip ? '<button type="button" id="lpaste" class="btn2">Aus Zwischenablage einfügen</button>' : ""}<button type="button" id="lgo" class="btn1">Verbinden</button></div>
       <div id="lmsg" class="lmsg" role="status" aria-live="polite"></div></div>`;
+  }
+  const isStandalone = () => window.navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  function privateLink() { return location.origin + location.pathname + "#d=" + S.cfg.d + "&k=" + S.cfg.k; }
+  async function copyText(t) {
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(t); return true; } } catch (e) { }
+    const ta = document.createElement("textarea"); ta.value = t; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:-100px;opacity:0";
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
+    let ok = false; try { ok = document.execCommand("copy"); } catch (e) { }
+    ta.value = ""; ta.remove(); return ok;
   }
   function bindLinkForm() {
     const inp = $("#lnk"); if (!inp || inp.dataset.bound) return; inp.dataset.bound = "1";
@@ -247,7 +269,7 @@
     return navbar() + b(120) + b(120) + b(120);
   }
   function noLink() {
-    return navbar() + `<section><h2>Kein Daten-Link</h2><div class="emptybox">Füge deinen privaten Link ein (er endet auf <span class="num">#d=…&amp;k=…</span>). Er wird nur auf diesem Gerät gespeichert. Die Home-Bildschirm-App hat einen eigenen Speicher – deshalb hier einmal einfügen, auch wenn der Link in Safari schon geöffnet war.</div>${linkForm()}</section>`;
+    return navbar() + `<section><h2>Kein Daten-Link</h2><div class="emptybox">Füge deinen privaten Link ein (er endet auf <span class="num">#d=…&amp;k=…</span>). Er wird nur auf diesem Gerät gespeichert. Die Home-Bildschirm-App hat einen eigenen Speicher – deshalb hier einmal einfügen, auch wenn der Link in Safari schon geöffnet war.</div>${linkForm()}<div class="ver">App v${APP_VERSION}</div></section>`;
   }
 
   function home() {
@@ -405,7 +427,10 @@
       }).join("")}</div>`).join("")}
       <h2>Dieses Gerät</h2><div class="list"><div class="lrow"><span>Datenquelle</span><span class="sec">Secret Gist · AES-GCM</span></div>
       <button class="lrow" id="forget" style="width:100%;color:var(--red)">Daten-Link auf diesem Gerät löschen</button></div>
+      ${!isStandalone() ? `<div class="grp">Für die Home-Bildschirm-App</div><div class="list"><button class="lrow" id="lcopy" style="width:100%;color:var(--blue,#0a84ff)">Link kopieren</button></div>
+      <div class="note" id="lcopymsg">Kopiert den privaten Link (mit Schlüssel) in die Zwischenablage. In der Home-Bildschirm-App dann „Aus Zwischenablage einfügen“.</div>` : ""}
       <div class="grp">Anderen Link verwenden</div>${linkForm(true)}
+      <div class="ver">App v${APP_VERSION}</div>
     </section>`;
   }
 
@@ -420,6 +445,10 @@
     const lk = $("#lnk"), lm = $("#lmsg");
     if (lk && (document.activeElement === lk || lk.value || (lm && lm.textContent && !S.cfg))) return; // don't wipe a link being pasted
     if (!S.cfg) { view.innerHTML = noLink(); bindLinkForm(); return; }
+    if (!S.snap && S.err) { // stored link can't load (wrong key, bad id, offline): never get stuck on skeletons
+      view.innerHTML = navbar() + `<section><h2>Daten nicht lesbar</h2><div class="emptybox">${esc(S.err)}. Bitte den privaten Link erneut einfügen.</div>${linkForm()}<div class="ver">App v${APP_VERSION}</div></section>`;
+      bindLinkForm(); return;
+    }
     if (!S.snap) { view.innerHTML = skeleton(r === "coin" ? "coin" : r === "audit" ? "audit" : r === "home" ? "home" : "list"); return; }
     const html = r === "agents" ? agentsTab() : r === "activity" ? activityTab() : r === "account" ? accountTab()
       : r === "coin" ? coinScreen(arg) : r === "audit" ? auditScreen(arg) : home();
@@ -439,6 +468,10 @@
     const sb = $("#sbtn"); if (sb) sb.onclick = () => { $("#search").classList.toggle("open"); $("#q").focus(); };
     const q = $("#q"); if (q) q.oninput = () => search(q.value);
     bindLinkForm();
+    const lc = $("#lcopy"); if (lc) lc.onclick = async () => {
+      const ok = S.cfg && await copyText(privateLink());
+      const m = $("#lcopymsg"); if (m) { m.textContent = ok ? "Link kopiert ✓ – jetzt die Home-Bildschirm-App öffnen und einfügen." : "Kopieren nicht möglich."; m.style.color = ok ? "#00d35a" : "#ff453a"; }
+    };
     const fg = $("#forget"); if (fg) fg.onclick = () => { if (confirm("Daten-Link auf diesem Gerät löschen?")) { LS.removeItem("desk.cfg"); LS.removeItem("desk.last"); location.reload(); } };
   }
   function search(t) {
@@ -458,7 +491,19 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   window.addEventListener("resize", () => render());
   S.tick = setInterval(() => { const e = offline(); if (e) { const el = $("#err"); el.textContent = e; el.hidden = false; } }, 1000);
-  if ("serviceWorker" in navigator && !isLocal()) navigator.serviceWorker.register("sw.js").catch(() => { });
+  if ("serviceWorker" in navigator && !isLocal()) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => r.update().catch(() => { })).catch(() => { });
+    // new SW took over an already-controlled page -> reload once (guarded per version, no loops)
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController) return;
+      const key = "desk.swReload";
+      if (sessionStorage.getItem(key) === APP_VERSION) return;
+      sessionStorage.setItem(key, APP_VERSION);
+      location.reload();
+    });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => { }); });
+  }
   render();
   warmStart().then(() => { render(); poll(); });
 })();
