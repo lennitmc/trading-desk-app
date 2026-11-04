@@ -3,8 +3,8 @@
    Every trade URL shown here comes verbatim from the desk's links.py (inside the snapshot). */
 (function () {
   "use strict";
-  const APP_VERSION = "3";
-  const POLL_S = 15, STALE_S = 120, API_MIN_GAP_S = 60;
+  const APP_VERSION = "4";
+  const POLL_S = 15, STALE_S = 300, API_MIN_GAP_S = 60;
   const LS = window.localStorage;
   const AG = { scanner: { n: "Scanner", c: "#64d2ff" }, auditor: { n: "Auditor", c: "#64d2ff" },
     analyst: { n: "Analyst", c: "#ffd60a" }, executor: { n: "Executor", c: "#00d35a" }, risk: { n: "Risk", c: "#ff6b9a" } };

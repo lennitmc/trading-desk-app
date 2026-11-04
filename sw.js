@@ -1,6 +1,6 @@
 // App-shell cache only. Desk data (GitHub Gist) is never cached here. No web push in plan B.
 // Network-first for everything same-origin (bypassing the HTTP cache), cache only as offline fallback.
-const VERSION = "3";
+const VERSION = "4";
 const CACHE = "desk-shell-v" + VERSION;
 const SHELL = ["./", "index.html", "app.css?v=3", "app.js?v=3", "chart.js?v=3", "manifest.json",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
