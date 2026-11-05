@@ -3,7 +3,7 @@
    Every trade URL shown here comes verbatim from the desk's links.py (inside the snapshot). */
 (function () {
   "use strict";
-  const APP_VERSION = "6";
+  const APP_VERSION = "7";
   const POLL_S = 15, STALE_S = 300, API_MIN_GAP_S = 60;
   const LS = window.localStorage;
   const AG = { scanner: { n: "Scanner", c: "#64d2ff" }, auditor: { n: "Auditor", c: "#64d2ff" },
@@ -284,6 +284,7 @@
     </div>
     <div class="chartwrap"><canvas id="line"></canvas>${pts.length < 2 || !s.chart.marks.length && Math.abs(st.balance - st.start) < 1e-9 ? '<div class="empty-chart">Waiting for the first trade</div>' : ""}</div>
     <div class="ranges">${["LIVE", "1H", "4H", "1D", "1W", "ALL"].map(r => `<button data-r="${r}" class="${S.range === r ? "on" : ""}">${r}</button>`).join("")}</div>
+    ${funnelTeaser()}
     <section><h2>Agents · ${runnng} running</h2></section>
     <div class="carousel" id="car">${ORDER.map(agentCard).join("")}</div>
     <section><h2>Activity <a class="more" href="#/activity">See all</a></h2>
@@ -361,10 +362,82 @@
     </section>`;
   }
 
+  /* ---------------- Filter: where coins get stuck (snapshot.funnel, last 24h) ---------------- */
+  const FPATH = () => new URLSearchParams((location.hash.split("?")[1] || "")).get("p") === "copy" ? "copy" : "scan";
+  function topBlocker(f) {
+    let best = null;
+    f.stages.forEach(st => st.reasons.forEach(r => { if (!r.waiting && (!best || r.count > best.count)) best = Object.assign({ stage: st.label }, r); }));
+    return best;
+  }
+  function funnelTeaser() {
+    const f = S.snap.funnel; if (!f) return "";
+    const steps = [["Neu", f.total]].concat(f.stages.map(st => [st.label + " ✓", st.passed]));
+    steps[steps.length - 1][0] = "Gekauft";
+    const tb = topBlocker(f);
+    return `<section><h2>Filter <a class="more" href="#/filter">Details</a></h2>
+      <a class="fteaser" href="#/filter"><div class="fsteps">${steps.map((x, i) => `<span><b class="num">${x[1]}</b><i>${esc(x[0])}</i></span>${i < steps.length - 1 ? '<span class="ar">›</span>' : ""}`).join("")}</div>
+      ${tb ? `<div class="s">Meist hängen geblieben: <span class="red">${esc(tb.stage)} · ${esc(tb.label)}</span> (${tb.count})</div>` : ""}
+      <div class="s ter">letzte ${f.window_h} Std · antippen für alle Gründe</div></a></section>`;
+  }
+  function reasonRow(r, total) {
+    const w = total ? Math.max(3, Math.round(100 * r.count / total)) : 0;
+    return `<a class="freason${r.waiting ? " wait" : ""}" href="#/filter/${encodeURIComponent(r.key)}">
+      <span class="fl">${r.waiting ? "⏳ " : ""}${esc(r.label)}</span><span class="fc num">${r.count}</span><span class="sec">›</span>
+      <span class="fb"><i style="width:${w}%"></i></span></a>`;
+  }
+  function stageBlock(st, total) {
+    const pctIn = total ? Math.round(100 * st.entered / total) : 0;
+    return `<div class="fstage"><div class="fh"><b>${esc(st.label)}</b><span class="sec num">${st.entered} rein → <span class="green">${st.passed} durch</span></span></div>
+      <div class="fbar"><i style="width:${pctIn}%"></i></div>
+      <div class="s">${st.stuck ? `<span class="red">${st.stuck} hängen geblieben</span>` : "nichts hängen geblieben"}${st.waiting ? ` · <span class="orange">${st.waiting} warten noch</span>` : ""}</div>
+      ${st.reasons.length ? `<div class="list">${st.reasons.map(r => reasonRow(r, st.entered)).join("")}</div>` : ""}</div>`;
+  }
+  function filterTab(arg) {
+    const f = S.snap.funnel;
+    if (!f) return navbar() + `<section><h2>Filter</h2><div class="emptybox">Der Desk liefert die Filter-Daten noch nicht (Desk-Update nötig).</div></section>`;
+    if (arg) return filterDetail(decodeURIComponent(arg));
+    const p = FPATH(), c = f.copy;
+    const seg = `<div class="seg fseg"><a href="#/filter" class="${p === "scan" ? "on" : ""}">Scanner-Pfad</a><a href="#/filter?p=copy" class="${p === "copy" ? "on" : ""}">Copy-Pfad</a></div>`;
+    let body;
+    if (p === "copy") {
+      body = !c ? '<div class="emptybox">Copy-Trading liefert noch keine Daten.</div>'
+        : `<div class="note">Regel: Kauf, sobald ${esc(c.rule)}. Jeder Coin, den ein verfolgter Trader gekauft hat, steht unten bei seinem Grund.</div>
+          ${stageBlock(Object.assign({}, c, { label: "Trader-Käufe" }), c.entered)}
+          ${boughtBlock(c.bought_coins, c.passed)}`;
+    } else {
+      body = `<div class="note">Jeder neue Coin der letzten ${f.window_h} Std steht genau einmal bei der Stelle, an der er gestoppt wurde. ⏳ = wartet noch (wird weiter geprüft).</div>
+        <div class="fstage"><div class="fh"><b>Neu migriert</b><span class="num">${f.total}</span></div></div>
+        ${f.stages.map(st => stageBlock(st, f.total)).join("")}
+        ${boughtBlock(f.bought_coins, f.bought)}`;
+    }
+    return navbar() + `<section><h2>Filter · wo Coins hängen bleiben</h2>${seg}${body}</section>`;
+  }
+  function boughtBlock(list, n) {
+    return `<div class="fstage"><div class="fh"><b class="green">Gekauft</b><span class="num green">${n}</span></div>
+      ${list && list.length ? `<div class="list">${list.map(coinRow).join("")}</div>` : '<div class="s sec">noch nichts</div>'}</div>`;
+  }
+  function coinRow(x) {
+    const href = coinHref(x.mint);
+    const nm = href ? `<a href="${href}"><b>${esc(x.name)}</b></a>` : `<b>${esc(x.name)}</b>`;
+    return `<div class="trow"><div class="th">${nm}<span class="num ter">${esc(x.short)}</span><span class="sec num">${x.ts ? hm(x.ts) : ""}</span></div>
+      <div class="s">${esc(x.detail || "")}</div></div>`;
+  }
+  function filterDetail(key) {
+    const f = S.snap.funnel, all = f.stages.concat(f.copy ? [f.copy] : []);
+    let st = null, r = null;
+    all.forEach(x => x.reasons.forEach(y => { if (y.key === key) { st = x; r = y; } }));
+    const back = key.startsWith("copy.") ? "#/filter?p=copy" : "#/filter";
+    if (!r) return navbar("Filter", back) + `<section><div class="emptybox">Für diesen Grund ist gerade kein Coin mehr im Fenster.</div></section>`;
+    const more = r.count > r.coins.length ? `<div class="note">Gezeigt: die neuesten ${r.coins.length} von ${r.count}.</div>` : "";
+    return navbar("Filter", back) + `<section><h2>${esc(st.key === "copy" ? "Copy" : st.label)}</h2>
+      <div class="note" style="margin:-4px 0 10px">${r.waiting ? "⏳ wartet noch · " : "gestoppt · "}<b>${esc(r.label)}</b> · ${r.count} Coin${r.count === 1 ? "" : "s"} in ${f.window_h} Std</div>
+      <div class="list">${r.coins.map(coinRow).join("")}</div>${more}</section>`;
+  }
+
   function activityTab() {
     const s = S.snap;
     LS.setItem("desk.seen", String(s.ts));
-    return navbar() + `<section><h2>Activity</h2>${s.activity.length ? `<div class="list">${s.activity.map(actRow).join("")}</div>` : '<div class="emptybox">Nothing yet tonight</div>'}</section>`;
+    return navbar() + `<section><h2>Activity</h2><a class="fentry" href="#/filter"><span>⛃ Filter · Wo Coins hängen bleiben</span><span class="sec">›</span></a>${s.activity.length ? `<div class="list">${s.activity.map(actRow).join("")}</div>` : '<div class="emptybox">Nothing yet tonight</div>'}</section>`;
   }
 
   function auditScreen(mint) {
@@ -471,7 +544,7 @@
   function route() { const h = (location.hash || "#/home").replace(/^#\//, "").split("?")[0].split("/"); return { r: h[0] || "home", arg: h[1] }; }
   function render() {
     const { r, arg } = route(), view = $("#view");
-    document.querySelectorAll(".tabbar a").forEach(a => a.classList.toggle("on", a.dataset.tab === r));
+    document.querySelectorAll(".tabbar a").forEach(a => a.classList.toggle("on", a.dataset.tab === (r === "filter" ? "activity" : r)));
     const off = offline(), err = $("#err");
     if (off) { err.textContent = off; err.hidden = false; } else err.hidden = true;
     const carLeft = $("#car") ? $("#car").scrollLeft : 0;
@@ -483,7 +556,7 @@
       bindLinkForm(); return;
     }
     if (!S.snap) { view.innerHTML = skeleton(r === "coin" ? "coin" : r === "audit" ? "audit" : r === "home" ? "home" : "list"); return; }
-    const html = r === "agents" ? agentsTab() : r === "trader" ? traderTab() : r === "activity" ? activityTab() : r === "account" ? accountTab()
+    const html = r === "agents" ? agentsTab() : r === "trader" ? traderTab() : r === "filter" ? filterTab(arg) : r === "activity" ? activityTab() : r === "account" ? accountTab()
       : r === "coin" ? coinScreen(arg) : r === "audit" ? auditScreen(arg) : home();
     view.innerHTML = html;
     if (r === "home") {
