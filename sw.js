@@ -1,8 +1,8 @@
 // App-shell cache only. Desk data (GitHub Gist) is never cached here. No web push in plan B.
 // Network-first for everything same-origin (bypassing the HTTP cache), cache only as offline fallback.
-const VERSION = "5";
+const VERSION = "6";
 const CACHE = "desk-shell-v" + VERSION;
-const SHELL = ["./", "index.html", "app.css?v=5", "app.js?v=5", "chart.js?v=5", "manifest.json",
+const SHELL = ["./", "index.html", "app.css?v=6", "app.js?v=6", "chart.js?v=6", "manifest.json",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))));

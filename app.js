@@ -3,7 +3,7 @@
    Every trade URL shown here comes verbatim from the desk's links.py (inside the snapshot). */
 (function () {
   "use strict";
-  const APP_VERSION = "5";
+  const APP_VERSION = "6";
   const POLL_S = 15, STALE_S = 300, API_MIN_GAP_S = 60;
   const LS = window.localStorage;
   const AG = { scanner: { n: "Scanner", c: "#64d2ff" }, auditor: { n: "Auditor", c: "#64d2ff" },
@@ -332,6 +332,35 @@
     }).join("")}</section>`;
   }
 
+  /* ---------------- Trader (copy trading, read-only public wallets) ---------------- */
+  const ago = ts => { if (!ts) return "nie"; const m = (Date.now() / 1000 - ts) / 60; return m < 1 ? "gerade" : m < 60 ? "vor " + Math.round(m) + " Min" : m < 1440 ? "vor " + Math.floor(m / 60) + " Std" : "vor " + Math.floor(m / 1440) + " T"; };
+  function traderTab() {
+    const c = S.snap.copy;
+    if (!c) return navbar() + `<section><h2>Trader</h2><div class="emptybox">Copy-Trading ist im Desk-Snapshot noch nicht aktiv.</div></section>`;
+    const dot = c.paused ? "#ff9f0a" : c.alive ? "#00d35a" : "#ff453a";
+    const stTxt = !c.enabled ? "aus" : c.paused ? "pausiert" : !c.alive ? "kein Heartbeat" : c.ws_up ? "live verbunden" : "Fallback-Abfrage";
+    const sigStat = { bought: ["green", "gekauft (Paper)"], sent: ["green", "Signal gesendet"], skipped: ["red", "übersprungen"], pending: ["sec", "wird geprüft"], push_failed: ["red", "Push fehlgeschlagen"] };
+    const w = c.wallets.map(x => {
+      const lb = x.last_buy, href = lb ? (coinHref(lb.mint) || null) : null;
+      const sol = safeUrl(x.solscan);
+      return `<div class="trow"><div class="th"><span class="sd" style="background:${x.recent ? "#00d35a" : "#48484a"}"></span><b>${esc(x.name)}</b>${x.enabled ? "" : ' <span class="ter">(aus)</span>'}
+          ${sol ? `<a class="link num" href="${esc(sol)}" target="_blank" rel="noopener noreferrer">${esc(x.short)} ↗</a>` : `<span class="num ter">${esc(x.short)}</span>`}</div>
+        <div class="s">${lb ? `Letzter Kauf: ${href ? `<a href="${href}">${esc(lb.name)}</a>` : esc(lb.name)} · ${ago(lb.ts)} · ${smallLinks(lb.links)}` : "Noch kein Kauf gesehen"}</div>
+        <div class="s ter">${x.recent ? "aktiv in den letzten 24 Std" : x.last_active ? "zuletzt aktiv " + ago(x.last_active) : "seit Start nicht aktiv gesehen"} · ${x.buys_24h} Coins in 24 Std</div></div>`;
+    }).join("");
+    const sg = c.signals.length ? `<div class="list">${c.signals.map(x => {
+      const [cls, lbl] = sigStat[x.status] || ["sec", x.status]; const href = coinHref(x.mint);
+      return `<div class="trow"><div class="th"><span class="sec num">${hm(x.ts)}</span>${href ? `<a href="${href}"><b>${esc(x.name)}</b></a>` : `<b>${esc(x.name)}</b>`}<span class="${cls}">${esc(lbl)}</span></div>
+        <div class="s">${esc(x.traders.join(", "))}${x.status === "skipped" && x.reason ? " · " + esc(x.reason) : ""} · ${smallLinks(x.links)}</div></div>`;
+    }).join("")}</div>` : `<div class="emptybox">Noch kein Coin, den ${c.min_wallets} Trader gekauft haben</div>`;
+    return navbar() + `<section><h2>Trader</h2>
+      <div class="note" style="margin:-4px 0 10px"><span class="sd" style="background:${dot};display:inline-block;width:8px;height:8px;border-radius:4px"></span> Copy ${esc(stTxt)} · Kauf, sobald ${c.min_wallets} von ${c.wallets.filter(x => x.enabled).length} Wallets denselben Coin in ${c.window_min} Min kaufen</div>
+      <h2>Copy-Signale</h2>${sg}
+      <h2>Wallets</h2><div class="list">${w}</div>
+      <div class="note">Öffentliche Wallet-Adressen (Namen = Labels von KOL-Trackern). Der Desk liest nur mit und kauft nie selbst on-chain. Pause per Telegram: „pause copy“.</div>
+    </section>`;
+  }
+
   function activityTab() {
     const s = S.snap;
     LS.setItem("desk.seen", String(s.ts));
@@ -395,7 +424,8 @@
       <div class="cell"><div class="k">24h volume</div><div class="val num">${kusd(c.vol24_usd)}</div></div>
       <div class="cell"><div class="k">Holders</div><div class="val num">${c.holders != null ? c.holders.toLocaleString("de-DE") : "n/a"}</div></div>
     </div>
-    ${open ? `<h2>Your position · ${usd(p.size_usd)} in · Executor</h2>
+    ${c.copy ? `<div class="copybox"><b>Copy-Trade</b> · gekauft von ${esc(c.copy.traders.join(", "))} · ${hm(c.copy.ts)}</div>` : ""}
+    ${open ? `<h2>Your position · ${usd(p.size_usd)} in · ${p.source === "copy" ? "Copy" : "Executor"}</h2>
       <div class="exitcard">
         <div class="lrow"><span>Stop line</span><span class="red num">${price(p.stop_price)} · -${p.stop_pct}%</span></div>
         <div class="lrow"><span>Gewinnziel +${p.tp_pct}%</span><span class="green num">${p.tp_line ? price(p.tp_line) : "n/a"}</span></div>
@@ -453,7 +483,7 @@
       bindLinkForm(); return;
     }
     if (!S.snap) { view.innerHTML = skeleton(r === "coin" ? "coin" : r === "audit" ? "audit" : r === "home" ? "home" : "list"); return; }
-    const html = r === "agents" ? agentsTab() : r === "activity" ? activityTab() : r === "account" ? accountTab()
+    const html = r === "agents" ? agentsTab() : r === "trader" ? traderTab() : r === "activity" ? activityTab() : r === "account" ? accountTab()
       : r === "coin" ? coinScreen(arg) : r === "audit" ? auditScreen(arg) : home();
     view.innerHTML = html;
     if (r === "home") {
